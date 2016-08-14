@@ -1,0 +1,116 @@
+desc: 3 Pillars - LCR + Lean
+//tags: panning stereo presence
+//author: Dan Herbert (Phoenix Forgotten / Oak)
+//@todo - add pitching to leaning (maybe negates some phasing scenarios?)
+
+slider1:0<0,3,1{Mono - combine,Mono - left,Mono - right,Stereo}>Channel Mode
+slider2:0<-300,300,1>Lean
+slider3:0<0,1,1{Off,On}>L
+slider4:0<0,1,1{Off,On}>C
+slider5:0<0,1,1{Off,On})>R
+slider6:0<0,1,1{No,Yes})>Push leaned side ahead
+
+@init 
+ 
+  channelMode = 0;
+  lean = 0;
+  L = 0;
+  C = 1;
+  R = 0;
+
+@slider
+
+  channelMode = slider1;
+  lean = slider2;
+  L = slider3;
+  C = slider4;
+  R = slider5;
+  leanSideAhead = slider6 == 1;
+  
+  //delay in ms
+  lDelay = lean * (lean > 0 ? -1 : (leanSideAhead ? 0.015 : 0));
+  rDelay = lean * (lean < 0 ? -1 : (leanSideAhead ? 0.015 : 0));
+  
+  (lean < 0) ?
+  (
+    rDelay = floor((rDelay - lDelay) / 1000 * srate) + 1;
+    lDelay = 0;
+  ) : 
+  (
+    lDelay = floor((rDelay - lDelay) / 1000 * srate);
+    rDelay = lDelay + 1;
+  );
+  
+  pdc_delay = floor(min(-min(lDelay, rDelay)/1000 * srate, 500000));
+  pdc_bot_ch = 0;
+  pdc_top_ch = 2;
+  
+@sample
+  
+  // ----- integrate delay ----- //
+  leftBuffer[0] = spl0;
+  leftBuffer = leftBuffer + 1;
+  (leftBuffer >= lDelay) ?
+  (
+    leftBuffer = 0;
+  );
+  rightBuffer[0] = spl1;
+  rightBuffer = rightBuffer + 1;
+  (rightBuffer >= rDelay) ?
+  (
+    rightBuffer = 0 + lDelay + 1;
+  );
+  
+  s0=leftBuffer[0];
+  s1=rightBuffer[0];
+  
+  // ----- Input channel mode ----- //
+  (
+    //mono combine
+    (channelMode == 0) ?
+    (
+      s0 = (s0 + s1) / 2;
+      s1 = s0;
+    ) :
+    //mono left
+    (channelMode == 1) ?
+    (
+      s1 = s0;
+    ) :
+    //mono right
+    (channelMode == 2) ?
+    (
+      s0 = s1;
+    );
+  );
+  
+  // ----- base 3-pillar values ----- //
+  left = s0;
+  right = s1;
+  center = (s0 + s1) / 2;
+  
+  os0 = 0;
+  os1 = 0;
+  
+  // ----- Output channels ----- //
+  (
+    //L
+    (L == 1) ?
+    (
+      os0 += s0;
+    );
+    //R
+    (R == 1) ?
+    (
+      os1 += s1;
+    );
+    //C (center is never delayed)
+    (C == 1) ?
+    (
+      os0 += spl0 / (L == 1 ? 2 : 1);
+      os1 += spl1 / (R == 1 ? 2 : 1);
+    );
+  );
+  
+  spl0 = os0;
+  spl1 = os1;
